@@ -31,7 +31,7 @@ from PIL import ImageFilter
 from PIL import ImageFont
 from PIL import ImageChops #modified
 
-from .query_integral_image import query_integral_image
+from wordcloud.query_integral_image import query_integral_image
 from .tokenization import unigrams_and_bigrams, process_tokens
 
 FILE = os.path.dirname(__file__)
@@ -114,9 +114,12 @@ class colormap_color_func(object):
     >>> WordCloud(color_func=colormap_color_func("magma"))
 
     """
-    def __init__(self, colormap):
+    def __init__(self, colormap, randomize_hue):
         import matplotlib.pyplot as plt
         self.colormap = plt.cm.get_cmap(colormap)
+        self.hue_offset = 0.0
+        if randomize_hue:
+            self.hue_offset = Random().uniform(0, 1)
 
     def __call__(self, word, font_size, position, orientation,
                  random_state=None, **kwargs):
@@ -124,6 +127,12 @@ class colormap_color_func(object):
             random_state = Random()
         r, g, b, _ = np.maximum(0, 255 * np.array(self.colormap(
             random_state.uniform(0, 1))))
+        
+        if self.hue_offset != 0.0:
+            h, s, v = colorsys.rgb_to_hsv(r, g, b) #offset the hue
+            h = (h + self.hue_offset) % 1.0
+            r, g, b = colorsys.hsv_to_rgb(h, s, v)
+
         return "rgb({:.0f}, {:.0f}, {:.0f})".format(r, g, b)
 
 
@@ -301,13 +310,22 @@ class WordCloud(object):
     emoji_cache_path : string, default="./cache/"
         The cache that should be used for storing downloaded emoji
     
-    emoji_regex : re.Patten, default=re.compile(r"<:[\w]*:(\d*)>")
+    emoji_regex : re.Patten, default=re.compile(r"<:[\w]+:(\d+)>")
         The regex that is used for matching emoji strings that are passed in.
         Should output the emoji's id, to be used for identifying the emoji,
         and downloading from Discords servers.
     
     font_size_mod : float, default=1.0
         The multiplier for the maximum font size that can be used in the generator.
+
+    outline_thickness : int, default=0
+        The text outline thickness
+
+    outline_color : string, default="black"
+        The text outline color
+
+    randomize_hue : bool, default=True
+        If colormap hue will be randomly rotated
 
     Attributes
     ----------
@@ -341,7 +359,8 @@ class WordCloud(object):
                  contour_color='black', repeat=False,
                  include_numbers=False, min_word_length=0, collocation_threshold=30,
                  tint_emoji = True, rotate_emoji = True, emoji_cache_path = "./cache/",
-                 emoji_regex = re.compile(r"<:[\w]*:(\d*)>"), font_size_mod = 1.0): #modified
+                 emoji_regex = re.compile(r"<:[\w]+:(\d+)>"), font_size_mod = 1.0,
+                 outline_thickness = 0, randomize_hue = True): #modified
         if font_path is None:
             font_path = FONT_PATH
         if color_func is None and colormap is None:
@@ -361,7 +380,7 @@ class WordCloud(object):
         self.contour_color = contour_color
         self.contour_width = contour_width
         self.scale = scale
-        self.color_func = color_func or colormap_color_func(colormap)
+        self.color_func = color_func or colormap_color_func(colormap, randomize_hue)
         self.max_words = max_words
         self.stopwords = stopwords if stopwords is not None else STOPWORDS
         self.min_font_size = min_font_size
@@ -400,7 +419,11 @@ class WordCloud(object):
         self.rotate_emoji = rotate_emoji #modified
         self.emoji_cache_path = emoji_cache_path #modified
         self.emoji_regex = emoji_regex #modified
-        self.font_size_mod = font_size_mod
+        self.font_size_mod = font_size_mod #modified
+        self.outline_thickness = outline_thickness #modified
+        self.outline_mult = 0.03 #modified
+        self.outline_offset = 0.2 #modified
+        self.outline_sensitivity = 0.7 #modified
 
     def fit_words(self, frequencies):
         """Create a word_cloud from words and frequencies.
@@ -605,7 +628,7 @@ class WordCloud(object):
                 mask = mask.resize((int(box_size[0]), int(box_size[1])), Image.NEAREST)
                 img_grey.paste(mask, (y, x), mask)
             else:
-                draw.text((y, x), word, fill="white", font=transposed_font)
+                draw.text((y, x), word, fill="white", font=transposed_font, stroke_width=int(font_size * mult * self.outline_mult))
             positions.append((x, y))
             orientations.append(orientation)
             font_sizes.append(int(font_size*mult))
@@ -735,9 +758,14 @@ class WordCloud(object):
         name = "{}{}.png".format(path, id)
         if(not os.path.isfile(name)):
             url = "https://cdn.discordapp.com/emojis/{}.png".format(id)
-            req = Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            try:
+                req = Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                b = urlopen(req).read()
+            except:
+                print("Failed to fetch emoji: " + id)
+                return "{}error.png".format(path)
             f = open(name, "wb")
-            f.write(urlopen(req).read())
+            f.write(b)
             f.close()
         return name
     
@@ -765,7 +793,14 @@ class WordCloud(object):
             c.putalpha(i.split()[3]) #give i's alpha channel to c
             i = c
         img.paste(i, p, i)
-        
+    def get_outline(self, color): #modified
+        #colors are strings, so this method is a bit pythonic
+        c = [ int(a.strip())/255 for a in color[4:-1].split(',') ]
+        c = [ *colorsys.rgb_to_hsv(*c) ] #completely overkill for a simple value change (maybe change hue later?)
+        c[2] -= np.sign(c[2] - self.outline_sensitivity) * self.outline_offset
+        c = [ *colorsys.hsv_to_rgb(*c) ]
+        c = [ int(min(255, max(0, a*255))) for a in c ]
+        return "RGB({}, {}, {})".format(*c)
     def to_image(self): 
         self._check_generated()
         if self.mask is not None:
@@ -789,7 +824,9 @@ class WordCloud(object):
                 font, orientation=orientation)
             pos = (int(position[1] * self.scale),
                    int(position[0] * self.scale))
-            draw.text(pos, word, fill=color, font=transposed_font)
+            outline = self.get_outline(color)
+            outline_size = int(font_size * self.scale * self.outline_mult)
+            draw.text(pos, word, fill=color, font=transposed_font, stroke_width=outline_size, stroke_fill=outline)
         return self._draw_contour(img=img)
 
     def recolor(self, random_state=None, color_func=None, colormap=None):

@@ -4,7 +4,7 @@
 ### overwriting settings as needed (key must be set)
 ### This file is subject to change as features are added
 
-# ~ indicated a null value, replacing it is recommended
+# ~ indicates a null value, replacing it is recommended
 
 # List the private API key here
 key: ~
@@ -27,9 +27,33 @@ commands:
     # These characters get stripped from the front and end of words
     strip: .,!?\'"`
     fontpath: fonts/MergedFonts.ttf
-    #emoji
+    # emoji
     tint: True
     rotate: True
     cache: cache/
+    # whatdidimiss command options:
+    max-lookback-time: 5d
+    # The amount of time that users can make a message before .whatdidimiss and have it
+    # not stop looking further back
+    ignore-msg-time: 2m
+    # Acceptable colour name formats listed at:
+    # https://pillow.readthedocs.io/en/stable/reference/ImageColor.html#color-names
+    # ~ means transparent
+    background-colour: ~
+    # Thickness in pixels
+    outline-thickness: 4
+    # Rotate colormap hue randomly?
+    randomize-hue: True
   stop:
+    enabled: True
+  cat:
+    enabled: True
+  dog:
+    enabled: True
+  gator:
+    enabled: True
+  images:
+    # Link api images instead of downloading first
+    link: True
+  hug:
     enabled: True

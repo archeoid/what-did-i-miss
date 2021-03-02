@@ -1,36 +1,39 @@
 # Initializing config may print error messages to the user if the config is invalid
-import modules.config as config
-import sys, os, discord, asyncio
-from discord.ext.commands import Bot
-# This line only imports the modules defined in modules/__init__.py, which should only be cogs
-from modules import whatdidimiss, stop
+# import modules.config as config
+import sys, os
+import discord
+from services.config import CONFIG
+from services.checks import server_allowed_check, global_command_handler
+from discord.ext import commands
 
-PREFIX = "."
-
-bot = Bot(
-    command_prefix=PREFIX,
+bot = commands.Bot(
+    command_prefix=".",
     case_insensitive=True
 )
+#import after to prevent circular imports
+from cogs import admin, images, misc, stop, whatdidimiss
+
+bot.on_command_error = global_command_handler
 
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
     await bot.change_presence(activity=discord.Activity(name=".help", type=discord.ActivityType.listening))
 
-# Add lines here to register additional "cogs", which are modular code sections that add commands
-bot.add_cog(whatdidimiss.whatdidimiss(bot))
-bot.add_cog(stop.stop(bot))
+if __name__ == "__main__":
+    # Add lines here to register additional "cogs", which are modular code sections that add commands
+    bot.add_cog(whatdidimiss.Whatdidimiss())
+    bot.add_cog(stop.Stop(bot))
+    bot.add_cog(images.Cat())
+    bot.add_cog(images.Dog())
+    bot.add_cog(images.Gator())
+    bot.add_cog(misc.Hug())
+    bot.add_cog(admin.Admin(bot))
+    bot.add_check(server_allowed_check)
 
-# I would do this in config but for some reason it doesn't work from there when testing
-if "DISCORD_KEY" in os.environ:
-        config.get_config()["key"] = os.environ["DISCORD_KEY"]
-
-if config.get_config()["key"]:
     try:
-        bot.run(config.get_config()["key"])
+        bot.run(CONFIG["key"])
     except discord.LoginFailure:
         print("Login error, please set a valid key")
         sys.exit(1)
-else:
-    print("Please set a private token")
-    sys.exit(1)
+
